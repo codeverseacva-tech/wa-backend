@@ -42,7 +42,7 @@ services:
     image: redis:7-alpine
     container_name: zaplink-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
     volumes:
       - redis-data:/data
     healthcheck:
@@ -54,7 +54,7 @@ services:
       - zaplink-network
 
   bullboard:
-    image: felixmosh/bull-board:latest
+    image: deadly0/bull-board:latest
     container_name: zaplink-bullboard
     restart: unless-stopped
     environment:
@@ -62,7 +62,7 @@ services:
       - REDIS_PORT=6379
       - BULL_BOARD_BASE_PATH=/admin/queues
     ports:
-      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:4000:3000"
     depends_on:
       redis:
         condition: service_healthy

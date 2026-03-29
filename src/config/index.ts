@@ -17,6 +17,7 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string(),
   SUPABASE_SERVICE_ROLE_KEY: z.string(),
+  SUPABASE_JWT_SECRET: z.string(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   SLACK_WEBHOOK_URL: z.string().url().optional(),
   METRICS_PORT: z.coerce.number().default(9090),
@@ -56,6 +57,7 @@ export const config = {
     url: env.SUPABASE_URL,
     anonKey: env.SUPABASE_ANON_KEY,
     serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    jwtSecret: env.SUPABASE_JWT_SECRET,
   },
   log: {
     level: env.LOG_LEVEL,
