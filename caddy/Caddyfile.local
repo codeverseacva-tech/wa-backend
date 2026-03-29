@@ -1,0 +1,20 @@
+api.localhost {
+  reverse_proxy api:3000
+}
+
+app.localhost {
+  reverse_proxy frontend:4000
+}
+
+supabase.localhost {
+  handle /auth/* {
+    reverse_proxy api:3000
+  }
+  handle /rest/* {
+    reverse_proxy postgrest:3000
+  }
+}
+
+:3002 {
+  reverse_proxy bullboard:3000
+}

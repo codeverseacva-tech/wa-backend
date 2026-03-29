@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/config": ["src/config/index.ts"],
+      "@/lib/*": ["src/lib/*"],
+      "@/services/*": ["src/services/*"],
+      "@/controllers/*": ["src/controllers/*"],
+      "@/routes": ["src/routes/index.ts"],
+      "@/routes/*": ["src/routes/*"],
+      "@/repositories": ["src/repositories/index.ts"],
+      "@/repositories/*": ["src/repositories/*"],
+      "@/middleware/*": ["src/middleware/*"],
+      "@/validators/*": ["src/validators/*"],
+      "@/types/*": ["src/types/*"],
+      "@/workers": ["src/workers/index.ts"],
+      "@/workers/*": ["src/workers/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests"]
+}

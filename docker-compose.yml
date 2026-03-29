@@ -1,0 +1,78 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production-runner
+    container_name: zaplink-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "node", "-e", "require('http').get('http://localhost:3000/health/live', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - zaplink-network
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production-runner
+    container_name: zaplink-worker
+    restart: unless-stopped
+    command: [ "node", "dist/workers/index.js" ]
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - zaplink-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: zaplink-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zaplink-network
+
+  bullboard:
+    image: felixmosh/bull-board:latest
+    container_name: zaplink-bullboard
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - BULL_BOARD_BASE_PATH=/admin/queues
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - zaplink-network
+
+networks:
+  zaplink-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    name: zaplink-redis-data

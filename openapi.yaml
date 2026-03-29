@@ -1,0 +1,191 @@
+openapi: 3.1.0
+info:
+  title: Zaplink WhatsApp SaaS API
+  description: |
+    Production-grade WhatsApp automation and orchestration API.
+    
+    ### Authentication
+    - **API Key Auth**: Provide your API key in the `X-API-Key` header.
+    - **Bearer Auth**: Provide your JWT in the `Authorization: Bearer <token>` header.
+    
+    ### Idempotency
+    For all `POST` and `PATCH` requests, use the `Idempotency-Key` header to safely retry operations.
+  version: 1.0.0
+  contact:
+    name: Zaplink Support
+    url: https://zaplink.co.ke
+    email: support@zaplink.co.ke
+
+servers:
+  - url: http://localhost:3000/v1
+    description: Local Development
+  - url: https://api.zaplink.co.ke/v1
+    description: Production Environment
+
+components:
+  securitySchemes:
+    APIKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  headers:
+    IdempotencyKey:
+      description: A unique identifier for the request to ensure idempotency.
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          example: NOT_FOUND
+        message:
+          type: string
+          example: The requested resource was not found
+        payload:
+          type: object
+          nullable: true
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, error]
+        timestamp:
+          type: string
+          format: date-time
+
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        fullName:
+          type: string
+          minLength: 3
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+paths:
+  /auth/register:
+    post:
+      summary: User Registration
+      description: Create a new account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created successfully.
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: User already exists.
+        '500':
+          description: Internal server error.
+
+  /auth/login:
+    post:
+      summary: User Login
+      description: Log in to get an authentication token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: Invalid credentials.
+        '403':
+          description: User suspended.
+
+  /health/live:
+    get:
+      summary: Liveness Check
+      description: Verifies that the API process is alive.
+      responses:
+        '200':
+          description: Process is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /health/ready:
+    get:
+      summary: Readiness Check
+      description: Verifies that dependencies (Redis, Supabase) are available.
+      responses:
+        '200':
+          description: All dependencies ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: One or more services are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /metrics:
+    get:
+      summary: Prometheus Metrics
+      description: Exports system and application performance metrics for scraping.
+      security:
+        - APIKeyAuth: []
+      parameters:
+        - in: header
+          name: X-Metrics-Secret
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Prometheus text format.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '403':
+          description: Invalid metrics secret.

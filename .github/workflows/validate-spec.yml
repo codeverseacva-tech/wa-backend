@@ -1,0 +1,28 @@
+name: Validate OpenAPI Spec
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'openapi.yaml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'openapi.yaml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Linting Tool
+        run: npm install -g @redocly/cli
+
+      - name: Lint OpenAPI Spec
+        run: redocly lint openapi.yaml

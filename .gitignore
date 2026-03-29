@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Sessions (Baileys)
+sessions/
+
+# Shared types
+*.d.ts
+
+# Misc
+.DS_Store
+.vscode/
+.idea/

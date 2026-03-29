@@ -1,0 +1,101 @@
+import { sessionManager } from '@/lib/baileys/sessionManager';
+import { sessionRepository } from '@/repositories/session.repository';
+import { planQuotaService } from './planQuota.service';
+import { redis } from '@/lib/redis';
+import { AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
+import { randomUUID } from 'crypto';
+
+/**
+ * Service orchestrating the full WhatsApp session lifecycle for multi-tenant users.
+ * Coordinates between database records, Baileys sockets, and Redis-backed state.
+ */
+export class SessionService {
+  /**
+   * Creates a new WhatsApp session after verifying plan quotas.
+   */
+  public async createSession(userId: string) {
+    // 1. Quota Check - prevents over-provisioning
+    await planQuotaService.checkSessionLimit(userId);
+    
+    // 2. Unique Session Generator
+    const sessionId = `zap_${randomUUID().replace(/-/g, '').substring(0, 12)}`;
+    
+    // 3. Persist record to Supabase
+    await sessionRepository.createRecord(userId, sessionId);
+    
+    // 4. Initialize the Baileys socket
+    // This starts the QR generation process and internal socket management
+    await sessionManager.createSocket(sessionId);
+    
+    return { sessionId };
+  }
+
+  /**
+   * Requests a pairing code from WhatsApp using the existing socket.
+   */
+  public async getPairingCode(sessionId: string, phoneNumber: string) {
+    const socket = sessionManager.getSocket(sessionId);
+    if (!socket) {
+      throw new AppError('SESSION_NOT_FOUND', 404, 'Active session socket not found.');
+    }
+
+    try {
+      // Baileys pairing code request for number input validation
+      const cleanPhone = phoneNumber.replace(/\D/g, '');
+      const code = await socket.requestPairingCode(cleanPhone);
+      return { code };
+    } catch (err) {
+      logger.error({ err, sessionId, phoneNumber }, 'Failed to request pairing code from Baileys');
+      throw new AppError('SESSION_PAIRING_FAILED', 500, 'Unable to generate pairing code at this time.');
+    }
+  }
+
+  /**
+   * Gracefully deletes a session and cleans up all related resources.
+   */
+  public async deleteSession(sessionId: string) {
+    // 1. Stop the socket and remove from manager
+    await sessionManager.terminateSocket(sessionId);
+    
+    // 2. Wipe Redis auth and QR state
+    const keys = await redis.keys(`session:${sessionId}:*`);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    
+    // 3. Delete the DB record
+    await sessionRepository.deleteRecord(sessionId);
+  }
+
+  /**
+   * Lists all user sessions enriched with live connection status.
+   */
+  public async listSessions(userId: string) {
+    const sessions = await sessionRepository.getByUserId(userId);
+    
+    return sessions.map(session => ({
+      ...session,
+      // Enrich with real-time memory status of the singleton manager
+      isOnline: sessionManager.isSocketActive(session.session_id)
+    }));
+  }
+
+  /**
+   * Fetches the latest QR code for an unauthenticated session.
+   */
+  public async getLatestQR(sessionId: string) {
+    const qr = await redis.get(`session:${sessionId}:qr`);
+    if (!qr) {
+       // Check if session exists at least
+       const session = await sessionRepository.getBySessionId(sessionId);
+       if (!session) throw new AppError('SESSION_NOT_FOUND', 404);
+       if (session.status === 'authenticated') throw new AppError('SESSION_ALREADY_EXISTS', 400, 'Session already logged in');
+       
+       throw new AppError('SESSION_QR_EXPIRED', 404, 'QR code either not generated yet or expired. Please refresh.');
+    }
+    return qr;
+  }
+}
+
+export const sessionService = new SessionService();

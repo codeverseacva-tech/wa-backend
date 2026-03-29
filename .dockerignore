@@ -1,0 +1,17 @@
+node_modules
+dist
+.env
+.env.local
+.git
+*.log
+supabase/.branches
+supabase/.temp
+caddy
+docker-compose*.yml
+Dockerfile*
+README.md
+docs
+scripts
+temp_keys.txt
+temp_keys.txt
+tsconfig.tsbuildinfo
