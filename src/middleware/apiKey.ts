@@ -55,7 +55,7 @@ export const apiKeyMiddleware = async (req: Request, res: Response, next: NextFu
     if (keyData.ip_whitelist && keyData.ip_whitelist.length > 0) {
       const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
       const cleanIp = clientIp.split(',')[0].trim();
-      
+
       const isAllowed = keyData.ip_whitelist.some((cidr: string) => {
         try {
           const addr = ipaddr.parse(cleanIp);
@@ -75,10 +75,17 @@ export const apiKeyMiddleware = async (req: Request, res: Response, next: NextFu
     // Can be handled later via RBAC based on permissions attached to req.user
 
     // Non-blocking update of last_used_at (hot path optimization)
-    (supabase.from('api_keys')
-      .update({ last_used_at: new Date().toISOString() })
-      .eq('id', keyData.id) as any)
-      .catch((e: any) => logger.error({ err: e, keyId: keyData.id }, 'Fire-and-forget last_used_at update failed'));
+    // Fix: Supabase PostgrestBuilder does not expose .catch() — wrap in a void async IIFE instead
+    void (async () => {
+      const { error: updateError } = await supabase
+        .from('api_keys')
+        .update({ last_used_at: new Date().toISOString() })
+        .eq('id', keyData.id);
+
+      if (updateError) {
+        logger.error({ err: updateError, keyId: keyData.id }, 'Fire-and-forget last_used_at update failed');
+      }
+    })();
 
     // Attach user context
     req.user = {

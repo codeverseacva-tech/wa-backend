@@ -39,4 +39,16 @@ export class WebhookLogsRepository extends BaseRepository {
     if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
     return data as WebhookLog[];
   }
+  public async listByUser(userId: string, pagination?: Pagination, tx?: TransactionalClient): Promise<any[]> {
+    const client = this.getClient(tx);
+    let query = client.from('webhook_logs')
+      .select('*, webhooks!inner(url)')
+      .eq('webhooks.user_id', userId)
+      .order('created_at', { ascending: false });
+
+    query = this.applyPagination(query, pagination);
+    const { data, error } = await query;
+    if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
+    return data;
+  }
 }

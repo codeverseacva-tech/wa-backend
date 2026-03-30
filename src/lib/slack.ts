@@ -94,3 +94,7 @@ class SlackService {
 }
 
 export const slack = new SlackService();
+
+// Named export allows unit tests to construct instances with a custom URL
+// without mutating the shared singleton. Production code always uses `slack`.
+export { SlackService };

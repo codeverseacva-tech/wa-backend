@@ -1,4 +1,4 @@
-import { WebhooksRepository } from '@/repositories/webhooks.repository';
+import { WebhooksRepository, Webhook } from '@/repositories/webhooks.repository';
 import { webhookDispatchQueue } from '@/lib/queues';
 import { logger } from '@/lib/logger';
 
@@ -42,6 +42,27 @@ export class WebhookService {
       logger.info({ userId, eventType, fanOutCount: activeHooks.length }, '🚀 Webhook fan-out enqueued');
     } catch (err: any) {
       logger.error({ err: err.message, userId, eventType }, 'Webhook dispatch failed to enqueue');
+    }
+  }
+
+  /**
+   * Dispatches an event to a single specific webhook, bypassing fan-out.
+   * Used by the test endpoint to target only the requested webhook.
+   */
+  public async dispatchToWebhook(webhook: Webhook, eventType: string, payload: any): Promise<void> {
+    try {
+      await webhookDispatchQueue.add('webhook-dispatch', {
+        webhookId: webhook.id,
+        url: webhook.url,
+        secret: webhook.secret,
+        eventType,
+        payload,
+        userId: webhook.user_id,
+      });
+
+      logger.info({ webhookId: webhook.id, url: webhook.url, eventType }, '🎯 Single webhook dispatch enqueued');
+    } catch (err: any) {
+      logger.error({ err: err.message, webhookId: webhook.id, eventType }, 'Single webhook dispatch failed to enqueue');
     }
   }
 }

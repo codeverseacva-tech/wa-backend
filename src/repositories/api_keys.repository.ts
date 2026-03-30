@@ -67,4 +67,14 @@ export class APIKeysRepository extends BaseRepository {
       .eq('id', id);
     if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
   }
+
+  public async delete(id: string, userId: string, tx?: TransactionalClient): Promise<void> {
+    const client = this.getClient(tx);
+    const { error } = await client
+      .from('api_keys')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
+    if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
+  }
 }

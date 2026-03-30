@@ -54,4 +54,33 @@ export class WebhooksRepository extends BaseRepository {
 
     return data as Webhook;
   }
+
+  public async deleteById(id: string, userId: string, tx?: TransactionalClient): Promise<void> {
+    const client = this.getClient(tx);
+    const { error } = await client
+      .from('webhooks')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) {
+      throw new AppError('DATABASE_ERROR', 500, error.message);
+    }
+  }
+
+  public async getById(id: string, userId: string, tx?: TransactionalClient): Promise<Webhook> {
+    const client = this.getClient(tx);
+    const { data, error } = await client
+      .from('webhooks')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !data) {
+      throw new AppError('NOT_FOUND', 404, 'Webhook not found');
+    }
+
+    return data as Webhook;
+  }
 }

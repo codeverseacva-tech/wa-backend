@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { AppError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
+import { BaseRepository, Pagination } from './base.repository';
 
 export interface WhatsAppSession {
   id: string;
@@ -12,7 +13,7 @@ export interface WhatsAppSession {
   updated_at: string;
 }
 
-export class SessionRepository {
+export class SessionRepository extends BaseRepository {
   /**
    * Insert a new session record into the database.
    */
@@ -73,13 +74,18 @@ export class SessionRepository {
   }
 
   /**
-   * Retrieve all sessions for a specific user.
+   * Retrieve all sessions for a specific user, newest first.
+   * Accepts optional pagination to support large result sets.
    */
-  public async getByUserId(userId: string): Promise<WhatsAppSession[]> {
-    const { data, error } = await supabase
+  public async getByUserId(userId: string, pagination?: Pagination): Promise<WhatsAppSession[]> {
+    let query = supabase
       .from('whatsapp_sessions')
       .select('*')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    query = this.applyPagination(query, pagination);
+    const { data, error } = await query;
 
     if (error) {
       logger.error({ error, userId }, 'Failed to fetch user sessions');

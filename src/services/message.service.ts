@@ -1,68 +1,267 @@
 import { sessionManager } from '@/lib/baileys/sessionManager';
-import { MessagesRepository } from '@/repositories/messages.repository';
-import { redis } from '@/lib/redis';
 import { AppError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
-import { createHash } from 'crypto';
-
-const messagesRepository = new MessagesRepository();
+import { AnyMessageContent } from '@whiskeysockets/baileys';
+import axios from 'axios';
 
 /**
- * Service managing WhatsApp messaging operations including JID validation,
- * idempotency, and persistent logging.
+ * Normalizes a phone number to WhatsApp JID format.
+ * e.g. "254712345678" -> "254712345678@s.whatsapp.net"
  */
+const toJid = (to: string): string => {
+  const clean = to.replace(/[^0-9]/g, '');
+  return clean.includes('@') ? clean : `${clean}@s.whatsapp.net`;
+};
+
+/**
+ * Fetches a remote URL and returns a Buffer.
+ * Used for media messages sent via URL.
+ */
+const fetchBuffer = async (url: string): Promise<Buffer> => {
+  try {
+    const res = await axios.get(url, { responseType: 'arraybuffer' });
+    return Buffer.from(res.data as ArrayBuffer);
+  } catch (err: any) {
+    logger.error({ err, url }, 'Failed to pre-fetch media from URL');
+    throw new AppError('MEDIA_FETCH_FAILED', 400, `Failed to fetch media from URL: ${url}`);
+  }
+};
+
 export class MessageService {
+
   /**
-   * Sends a message through an active Baileys socket.
-   * Includes a 10-minute idempotency window to prevent duplicate deliveries.
+   * Core send dispatcher — routes to the correct Baileys sendMessage call
+   * based on message type.
    */
-  public async sendMessage(sessionId: string, to: string, payload: any) {
-    // 1. JID Validation (@s.whatsapp.net for personal, @g.us for groups)
-    if (!to.includes('@')) {
-      throw new AppError('INVALID_JID', 400, 'Recipient JID format is invalid.');
-    }
-
-    // 2. Idempotency logic - prevent duplicate sends for the same payload
-    const payloadHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
-    const idempotencyKey = `msg_idemp:${sessionId}:${to}:${payloadHash}`;
-    
-    const cachedResponse = await redis.get(idempotencyKey);
-    if (cachedResponse) {
-      logger.info({ sessionId, to }, 'Idempotency hit: skipping duplicate message send');
-      return JSON.parse(cachedResponse);
-    }
-
-    // 3. Retrieve Socket from Manager
+  public async send(sessionId: string, payload: SendMessagePayload): Promise<SendMessageResult> {
     const socket = sessionManager.getSocket(sessionId);
-    if (!socket || !sessionManager.isSocketActive(sessionId)) {
-      throw new AppError('SESSION_NOT_AUTHENTICATED', 401, 'WhatsApp session is not authenticated or connected.');
+    if (!socket) {
+      throw new AppError('SESSION_NOT_FOUND', 404, `No active socket for session: ${sessionId}`);
+    }
+
+    const jid = toJid(payload.to);
+    let content: AnyMessageContent;
+
+    switch (payload.type) {
+
+      // ─── TEXT ────────────────────────────────────────────────────────
+      case 'text': {
+        if (!payload.text) throw new AppError('VALIDATION_ERROR', 400, 'text is required for type=text');
+        content = { text: payload.text };
+        break;
+      }
+
+      // ─── IMAGE ───────────────────────────────────────────────────────
+      case 'image': {
+        if (!payload.url && !payload.base64) {
+          throw new AppError('VALIDATION_ERROR', 400, 'url or base64 is required for type=image');
+        }
+        const imageData = payload.base64
+          ? Buffer.from(payload.base64, 'base64')
+          : { url: payload.url! };
+        content = {
+          image: imageData,
+          caption: payload.caption,
+          mimetype: payload.mimetype || 'image/jpeg',
+        };
+        break;
+      }
+
+      // ─── VIDEO ───────────────────────────────────────────────────────
+      case 'video': {
+        if (!payload.url && !payload.base64) {
+          throw new AppError('VALIDATION_ERROR', 400, 'url or base64 is required for type=video');
+        }
+        const videoData = payload.base64
+          ? Buffer.from(payload.base64, 'base64')
+          : { url: payload.url! };
+        content = {
+          video: videoData,
+          caption: payload.caption,
+          mimetype: payload.mimetype || 'video/mp4',
+          gifPlayback: payload.gif ?? false,
+        };
+        break;
+      }
+
+      // ─── AUDIO ───────────────────────────────────────────────────────
+      case 'audio': {
+        if (!payload.url && !payload.base64) {
+          throw new AppError('VALIDATION_ERROR', 400, 'url or base64 is required for type=audio');
+        }
+        const audioData = payload.base64
+          ? Buffer.from(payload.base64, 'base64')
+          : { url: payload.url! };
+        content = {
+          audio: audioData,
+          mimetype: payload.mimetype || 'audio/mpeg',
+          ptt: payload.ptt ?? false,
+        };
+        break;
+      }
+
+      // ─── DOCUMENT ────────────────────────────────────────────────────
+      case 'document': {
+        if (!payload.url && !payload.base64) {
+          throw new AppError('VALIDATION_ERROR', 400, 'url or base64 is required for type=document');
+        }
+        const docData = payload.base64
+          ? Buffer.from(payload.base64, 'base64')
+          : { url: payload.url! };
+        content = {
+          document: docData,
+          mimetype: payload.mimetype || 'application/octet-stream',
+          fileName: payload.filename || 'file',
+          caption: payload.caption,
+        };
+        break;
+      }
+
+      // ─── STICKER ─────────────────────────────────────────────────────
+      case 'sticker': {
+        if (!payload.url && !payload.base64) {
+          throw new AppError('VALIDATION_ERROR', 400, 'url or base64 is required for type=sticker');
+        }
+        const stickerData = payload.base64
+          ? Buffer.from(payload.base64, 'base64')
+          : { url: payload.url! };
+        content = { sticker: stickerData };
+        break;
+      }
+
+      // ─── LOCATION ────────────────────────────────────────────────────
+      case 'location': {
+        if (payload.latitude === undefined || payload.longitude === undefined) {
+          throw new AppError('VALIDATION_ERROR', 400, 'latitude and longitude are required for type=location');
+        }
+        content = {
+          location: {
+            degreesLatitude: payload.latitude,
+            degreesLongitude: payload.longitude,
+            name: payload.location_name,
+            address: payload.location_address,
+          },
+        };
+        break;
+      }
+
+      // ─── CONTACT ─────────────────────────────────────────────────────
+      case 'contact': {
+        if (!payload.contact_name || !payload.contact_phone) {
+          throw new AppError('VALIDATION_ERROR', 400, 'contact_name and contact_phone are required for type=contact');
+        }
+        const phone = payload.contact_phone.replace(/[^0-9]/g, '');
+        const vcard = [
+          'BEGIN:VCARD',
+          'VERSION:3.0',
+          `FN:${payload.contact_name}`,
+          `TEL;type=CELL;type=VOICE;waid=${phone}:+${phone}`,
+          'END:VCARD',
+        ].join('\n');
+        content = {
+          contacts: {
+            displayName: payload.contact_name,
+            contacts: [{ vcard }],
+          },
+        };
+        break;
+      }
+
+      // ─── REACTION ────────────────────────────────────────────────────
+      case 'reaction': {
+        if (!payload.reaction_emoji || !payload.reaction_message_id) {
+          throw new AppError('VALIDATION_ERROR', 400, 'reaction_emoji and reaction_message_id are required for type=reaction');
+        }
+        content = {
+          react: {
+            text: payload.reaction_emoji,
+            key: {
+              remoteJid: jid,
+              id: payload.reaction_message_id,
+              fromMe: payload.reaction_from_me ?? false,
+            },
+          },
+        };
+        break;
+      }
+
+      default:
+        throw new AppError('VALIDATION_ERROR', 400, `Unsupported message type: ${(payload as any).type}`);
     }
 
     try {
-      // 4. Send with Baileys
-      const result = await socket.sendMessage(to, payload);
-      if (!result) throw new Error('Baileys socket returned null for sendMessage');
-
-      // 5. Persist to Postgres via Repository
-      const storedMessage = await messagesRepository.create({
-        session_id: sessionId,
-        from_jid: socket.user?.id.split(':')[0] + '@s.whatsapp.net', // Normalize JID
-        to_jid: to,
-        message_data: payload,
-        key: result.key,
+      const sent = await socket.sendMessage(jid, content);
+      logger.info({ sessionId, to: jid, type: payload.type }, '📤 Message sent');
+      return {
+        message_id: sent?.key?.id ?? null,
+        to: jid,
+        type: payload.type,
         status: 'sent',
-        timestamp: Date.now(),
-      });
-
-      // 6. Cache the result for idempotency window (10 mins)
-      await redis.set(idempotencyKey, JSON.stringify(storedMessage), 'EX', 600);
-
-      return storedMessage;
-    } catch (err) {
-      logger.error({ err, sessionId, to }, 'High-level message sending failed');
-      throw new AppError('MESSAGE_SEND_FAILED', 500, 'WhatsApp message delivery failed.');
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      logger.error({ err, sessionId, to: jid, type: payload.type }, '❌ Failed to send message');
+      throw new AppError('MESSAGE_SEND_FAILED', 500, err.message || 'Failed to send message');
     }
+  }
+
+  /**
+   * Alias used by bulk and scheduler workers.
+   * Signature: sendMessage(sessionId, to, payload)
+   */
+  public async sendMessage(
+    sessionId: string,
+    to: string,
+    payload: Omit<SendMessagePayload, 'to'>
+  ): Promise<SendMessageResult> {
+    return this.send(sessionId, { ...payload, to });
   }
 }
 
 export const messageService = new MessageService();
+
+// ─── TYPES ───────────────────────────────────────────────────────────────────
+
+export interface SendMessagePayload {
+  to: string;
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact' | 'reaction';
+
+  // text
+  text?: string;
+
+  // media (image/video/audio/document/sticker)
+  url?: string;
+  base64?: string;
+  mimetype?: string;
+  caption?: string;
+  filename?: string;
+
+  // video specific
+  gif?: boolean;
+
+  // audio specific
+  ptt?: boolean; // voice note
+
+  // location
+  latitude?: number;
+  longitude?: number;
+  location_name?: string;
+  location_address?: string;
+
+  // contact
+  contact_name?: string;
+  contact_phone?: string;
+
+  // reaction
+  reaction_emoji?: string;
+  reaction_message_id?: string;
+  reaction_from_me?: boolean;
+}
+
+export interface SendMessageResult {
+  message_id: string | null;
+  to: string;
+  type: string;
+  status: 'sent' | 'failed';
+  timestamp: string;
+}

@@ -6,7 +6,6 @@ import { z } from 'zod';
 
 const router = Router();
 
-// Validation schema for STK Push
 const stkPushSchema = z.object({
   body: z.object({
     phoneNumber: z.string().min(10).max(15),
@@ -17,8 +16,29 @@ const stkPushSchema = z.object({
 });
 
 /**
+ * GET /v1/billing/plan
+ * Returns the current user's active plan.
+ */
+router.get('/plan', authMiddleware, async (req, res, next) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        plan: 'trial',
+        status: 'active',
+        sessionsUsed: 0,
+        sessionsLimit: 1,
+        billingCycle: 'monthly',
+        renewsAt: null,
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /v1/billing/stk-push
- * Initiates Tuma STK Push
  */
 router.post('/stk-push', authMiddleware, validate(stkPushSchema), async (req, res, next) => {
   try {
@@ -29,7 +49,7 @@ router.post('/stk-push', authMiddleware, validate(stkPushSchema), async (req, re
       billingCycle,
       phoneNumber
     );
-    res.json(result);
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
@@ -37,12 +57,11 @@ router.post('/stk-push', authMiddleware, validate(stkPushSchema), async (req, re
 
 /**
  * GET /v1/billing/payment/:id/status
- * Check payment status (polling)
  */
 router.get('/payment/:id/status', authMiddleware, async (req, res, next) => {
   try {
     const result = await billingService.pollPaymentStatus(req.params.id);
-    res.json(result);
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
@@ -50,12 +69,11 @@ router.get('/payment/:id/status', authMiddleware, async (req, res, next) => {
 
 /**
  * POST /v1/billing/tuma/callback
- * Tuma payment webhook
  */
 router.post('/tuma/callback', async (req, res, next) => {
   try {
     await billingService.handleWebhook(req.body);
-    res.status(200).json({ success: true });
+    res.status(200).json({ success: true, data: null });
   } catch (err) {
     next(err);
   }

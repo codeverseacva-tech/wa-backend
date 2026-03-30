@@ -62,7 +62,7 @@ services:
       - REDIS_PORT=6379
       - BULL_BOARD_BASE_PATH=/admin/queues
     ports:
-      - "127.0.0.1:4000:3000"
+      - "127.0.0.1:4001:3000"
     depends_on:
       redis:
         condition: service_healthy

@@ -1,4 +1,4 @@
-export type ErrorCode = 
+export type ErrorCode =
   | 'NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'INVALID_PLAN'
   | 'QUOTA_EXCEEDED'
   | 'INVALID_TOKEN'
+  | 'MISSING_TOKEN'
   | 'API_KEY_EXPIRED'
   | 'API_KEY_IP_BLOCKED'
   | 'API_KEY_INSUFFICIENT_SCOPE'
@@ -32,6 +33,8 @@ export type ErrorCode =
   | 'MPESA_STK_FAILED'
   | 'MPESA_PAYMENT_PENDING'
   | 'MPESA_PAYMENT_FAILED'
+  | 'MEDIA_FETCH_FAILED'
+  | 'UPLOAD_FAILED'
   | 'INVALID_PHONE_NUMBER';
 
 export class AppError extends Error {
