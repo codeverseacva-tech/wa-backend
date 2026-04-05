@@ -409,21 +409,54 @@ router.get('/settings', authMiddleware, partnerAuth, async (req: any, res, next)
  */
 router.patch('/settings', authMiddleware, partnerAuth, async (req: any, res, next) => {
   try {
-    if (!req.partner) {
-        return res.status(403).json({ success: false, error: { code: 'PARTNER_CONTEXT_REQUIRED' } });
-    }
-    const partnerId = req.partner.id;
+    let partner = req.partner;
+    const userId = req.user.id;
     const { base_webhook_url } = req.body;
 
-    const updated = await partnerRepo.update(partnerId, { 
-      base_webhook_url,
-      updated_at: new Date().toISOString()
-    });
+    if (!partner) {
+      // 1. Generate First Master API Key
+      const prefixString = `zap_master_${randomBytes(4).toString('hex')}`;
+      const secretPart = randomBytes(24).toString('base64url');
+      const hash = createHash('sha256').update(secretPart).digest('hex');
+      const apiKeyId = uuidv4();
+
+      await apiKeyRepo.create({
+        id: apiKeyId,
+        user_id: userId,
+        key_name: 'Master Partner Key (Initial)',
+        key_hash: hash,
+        key_prefix: prefixString,
+        permissions: ['partner:admin', 'messages:send', 'sessions:manage'],
+        rate_limit: 5000
+      });
+
+      // 2. Create Partner Profile
+      const partnerId = uuidv4();
+      partner = await partnerRepo.create({
+        id: partnerId,
+        partner_name: req.user.email?.split('@')[0] || 'Unknown Partner',
+        contact_email: req.user.email,
+        base_webhook_url,
+        master_api_key_id: apiKeyId,
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      // 3. Link key back
+      await apiKeyRepo.update(apiKeyId, { partner_id: partnerId });
+    } else {
+      // 4. Update existing Partner
+      partner = await partnerRepo.update(partner.id, { 
+        base_webhook_url,
+        updated_at: new Date().toISOString()
+      });
+    }
 
     res.json({
       success: true,
       data: {
-        base_webhook_url: updated.base_webhook_url
+        base_webhook_url: partner.base_webhook_url
       }
     });
   } catch (err) {
