@@ -38,6 +38,19 @@ export const apiKeyMiddleware = async (req: Request, res: Response, next: NextFu
       return next(new AuthError('INVALID_TOKEN', 401));
     }
 
+    // 0. Sub-User Status Check (Only if this is a sub-user key)
+    if (keyData.sub_user_id) {
+      const { data: subUser } = await supabase
+        .from('partner_sub_users')
+        .select('status')
+        .eq('id', keyData.sub_user_id)
+        .single();
+      
+      if (!subUser || subUser.status !== 'active') {
+        return next(new AuthError('INVALID_TOKEN', 401, 'Sub-user account is deactivated'));
+      }
+    }
+
     // Constant-time comparison of hashes in Node.js
     const dbHashBuf = Buffer.from(keyData.key_hash, 'hex');
     const incomingHashBuf = Buffer.from(incomingHash, 'hex');
@@ -92,6 +105,10 @@ export const apiKeyMiddleware = async (req: Request, res: Response, next: NextFu
       id: keyData.user_id,
       role: keyData.profiles?.role || 'user',
       rateLimit: keyData.rate_limit,
+      apiKeyId: keyData.id,
+      permissions: keyData.permissions || [],
+      partnerId: keyData.partner_id,
+      subUserId: keyData.sub_user_id,
     };
 
     next();

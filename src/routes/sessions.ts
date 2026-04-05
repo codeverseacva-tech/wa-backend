@@ -26,7 +26,8 @@ const sessionSchema = z.object({
 router.post('/', ...anyAuth, validate(sessionSchema), async (req, res, next) => {
   try {
     const userId = req.user!.id;
-    const { sessionId } = await sessionService.createSession(userId);
+    const apiKeyId = req.user?.apiKeyId;
+    const { sessionId } = await sessionService.createSession(userId, apiKeyId);
 
     res.status(201).json({
       success: true,

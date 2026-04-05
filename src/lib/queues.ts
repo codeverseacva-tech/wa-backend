@@ -39,6 +39,8 @@ export interface WebhookDispatchJob extends BaseJob {
   eventType: string;
   payload: any;
   userId: string;
+  subUserId?: string; // For Partner Sub-users
+  partnerId?: string; // For Partner Tier identification
 }
 
 /**

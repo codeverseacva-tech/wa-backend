@@ -1,6 +1,7 @@
 import cors from 'cors';
 import { config } from '@/config';
 import { AuthError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 
 const allowedOrigins = config.cors.allowedOrigins;
 
@@ -24,6 +25,7 @@ export const corsMiddleware = cors({
     if (isAllowed) {
       callback(null, true);
     } else {
+      logger.warn({ origin, allowedOrigins }, 'CORS_ORIGIN_NOT_ALLOWED');
       // Returning an error here causes the cors package to return 4xx/5xx depending on implementation
       // We wrap it in our custom AuthError for consistent handling by the global errorHandler
       callback(new AuthError('CORS_ORIGIN_NOT_ALLOWED', 403, `The origin ${origin} is not authorized for this API.`));

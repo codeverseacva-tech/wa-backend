@@ -12,6 +12,7 @@ import bulkRouter from './bulk';
 import schedulerRouter from './scheduler';
 import validationRouter from './validation';
 import adminRouter from './admin';
+import partnerRouter from './partner';
 import stubsRouter from './stubs';
 import messagesRouter from './messages';
 
@@ -33,6 +34,7 @@ router.use('/bulk', bulkRouter);
 router.use('/scheduler', schedulerRouter);
 router.use('/validation', validationRouter);
 router.use('/admin', adminRouter);
+router.use('/partner', partnerRouter);
 router.use('/sessions', messagesRouter);
 
 

@@ -5,6 +5,8 @@ import { WebhookLogsRepository } from '@/repositories/webhook_logs.repository';
 import { logger } from '@/lib/logger';
 import { createHmac } from 'crypto';
 import axios from 'axios';
+import { supabase } from '@/lib/supabase';
+import { slack } from '@/lib/slack';
 
 const logsRepo = new WebhookLogsRepository();
 
@@ -15,31 +17,44 @@ const logsRepo = new WebhookLogsRepository();
 export const webhookWorker = new Worker<WebhookDispatchJob>(
   'webhook-dispatch',
   async (job: Job<WebhookDispatchJob>) => {
-    const { webhookId, url, secret, eventType, payload } = job.data;
+    const { webhookId, url, secret, eventType, payload, subUserId, partnerId } = job.data;
 
-    // 1. Digital Signature: HMAC-SHA256 to ensure payload integrity at recipient
+    // 1. Digital Signature: HMAC-SHA256
     const signature = createHmac('sha256', secret)
       .update(JSON.stringify(payload))
       .digest('hex');
 
+    const headers: any = {
+      'Content-Type': 'application/json',
+      'X-Zaplink-Signature': signature,
+      'X-Zaplink-Event': eventType,
+      // Internal headers for easier debugging
+      'X-WA-Signature': signature, 
+      'X-WA-Event': eventType,
+    };
+
+    if (subUserId) headers['X-Zaplink-Sub-User-Id'] = subUserId;
+    if (partnerId) headers['X-Zaplink-Partner-Id'] = partnerId;
+
     try {
       // 2. HTTP POST dispatch
       const response = await axios.post(url, payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-WA-Signature': signature,
-          'X-WA-Event': eventType,
-        },
-        timeout: 10000, // 10s wait time for subscriber response
+        headers,
+        timeout: 10000,
       });
 
-      // 3. Persist success log for auditing
+      // 3. Reset Circuit Breaker for sub-user on success
+      if (subUserId) {
+        await redis.del(`webhook:fail_count:${subUserId}`);
+      }
+
+      // 4. Persist success log
       await logsRepo.create({
         webhook_id: webhookId,
         event_type: eventType,
         payload,
         response_status: response.status,
-        response_body: JSON.stringify(response.data).substring(0, 1000), // Safety truncation
+        response_body: JSON.stringify(response.data).substring(0, 1000),
       });
 
       logger.info({ webhookId, url, status: response.status }, '✅ Webhook delivery successful');
@@ -47,7 +62,26 @@ export const webhookWorker = new Worker<WebhookDispatchJob>(
       const status = err.response?.status || 500;
       const respBody = err.response?.data ? JSON.stringify(err.response.data).substring(0, 500) : err.message;
 
-      // Persist failure logs to help users debug their endpoints
+      // 5. Circuit Breaker Logic for Partners
+      if (subUserId) {
+        const failCount = await redis.incr(`webhook:fail_count:${subUserId}`);
+        await redis.expire(`webhook:fail_count:${subUserId}`, 86400); // 24h window
+
+        if (failCount === 3) {
+          await supabase
+            .from('partner_sub_users')
+            .update({ status: 'suspended' })
+            .eq('external_user_id', subUserId);
+          
+          await slack.sendAlert(
+            'critical',
+            'Partner Webhook Paused',
+            `Delivery for sub-user ${subUserId} has been suspended after 3 consecutive failures.`,
+            { url, lastError: err.message }
+          );
+        }
+      }
+
       await logsRepo.create({
         webhook_id: webhookId,
         event_type: eventType,
@@ -57,8 +91,6 @@ export const webhookWorker = new Worker<WebhookDispatchJob>(
       });
 
       logger.warn({ webhookId, url, status, attempt: job.attemptsMade + 1 }, '⚠️ Webhook delivery attempt failed');
-      
-      // Trigger BullMQ exponential backoff retry mechanism
       throw err;
     }
   },
@@ -68,7 +100,6 @@ export const webhookWorker = new Worker<WebhookDispatchJob>(
   }
 );
 
-import { slack } from '@/lib/slack';
 
 /**
  * Critical failure hook for permanent delivery drops

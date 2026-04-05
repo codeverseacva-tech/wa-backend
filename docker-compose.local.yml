@@ -10,6 +10,8 @@ services:
     environment:
       API_BASE_URL: http://localhost:3000
       TEST_API_BASE_URL: http://localhost:3000
+      NODE_ENV: development
+      REHYDRATE_SESSIONS: "false"
     depends_on:
       redis:
         condition: service_healthy
@@ -28,6 +30,9 @@ services:
     command: ["node", "dist/workers/index.js"]
     env_file:
       - .env.local
+    environment:
+      NODE_ENV: development
+      REHYDRATE_SESSIONS: "false"
     depends_on:
       redis:
         condition: service_healthy

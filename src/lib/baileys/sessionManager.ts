@@ -9,6 +9,7 @@ import { Boom } from '@hapi/boom';
 import { redis } from '@/lib/redis';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import { config } from '@/config';
 import { useBaileysAuthState } from './authStateAdapter';
 import { baileysActiveSessions } from '@/lib/metrics';
 import { slack } from '@/lib/slack';
@@ -145,6 +146,21 @@ export class SessionManager {
       if (connection === 'open') {
         logger.info({ sessionId }, '✅ Connection opened');
         await this.updateSessionStatus(sessionId, 'authenticated');
+
+        // Link session to Partner Sub-user if metadata exists
+        const metaStr = await redis.get(`session:${sessionId}:meta`);
+        if (metaStr) {
+          const meta = JSON.parse(metaStr);
+          if (meta.sub_user_id) {
+            await supabase
+              .from('partner_sub_users')
+              .update({ session_id: sessionId })
+              .eq('id', meta.sub_user_id);
+            
+            logger.info({ sessionId, subUserId: meta.sub_user_id }, '🔗 Linked session to partner sub-user');
+          }
+        }
+
         await redis.del(`session:${sessionId}:qr`);
         await redis.del(reconnectCounterKey);
         await redis.publish(`session:${sessionId}:events`, JSON.stringify({ type: 'connected' }));
@@ -155,7 +171,9 @@ export class SessionManager {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
         logger.warn({ sessionId, statusCode }, '🛑 Connection closed');
-        await this.updateSessionStatus(sessionId, 'disconnected');
+        if (config.api.nodeEnv === 'production') {
+          await this.updateSessionStatus(sessionId, 'disconnected');
+        }
 
         if (shouldReconnect) {
           const attempts = await redis.incr(reconnectCounterKey);
@@ -176,7 +194,9 @@ export class SessionManager {
         } else {
           this.sockets.delete(sessionId);
           baileysActiveSessions.set(this.sockets.size);
-          await this.updateSessionStatus(sessionId, 'logged_out');
+          if (config.api.nodeEnv === 'production') {
+            await this.updateSessionStatus(sessionId, 'logged_out');
+          }
         }
       }
     });
@@ -227,11 +247,11 @@ export class SessionManager {
           '📨 Dispatching message webhook'
         );
 
-        // Non-blocking — webhook dispatch failure must never crash the socket
-        webhookService.dispatchEvent(eventType, payload, userId).catch((err) => {
+        // Dispatch event — identifies if it's a sub-user vs regular user
+        webhookService.dispatchContextualEvent(eventType, payload, sessionId, userId).catch((err) => {
           logger.error(
             { err, sessionId, userId, messageId },
-            'Webhook dispatchEvent failed silently'
+            'Webhook dispatchContextualEvent failed silently'
           );
         });
       }

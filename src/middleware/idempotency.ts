@@ -50,30 +50,39 @@ export const idempotencyMiddleware = async (req: Request, res: Response, next: N
 
     // Wrap res.send to intercept and store the response
     const originalSend = res.send;
-    res.send = (body: any) => {
-      // Re-attach original send to avoid recursion
-      res.send = originalSend;
+    
+    res.send = function(body: any) {
+      try {
+        // Re-attach original send to avoid recursion
+        res.send = originalSend;
 
-      // Only cache non-5xx responses typically
-      if (res.statusCode < 500) {
-        try {
-          const parsedBody = typeof body === 'string' ? JSON.parse(body) : body;
-          const cacheData = JSON.stringify({
-            hash,
-            response: {
-              status: res.statusCode,
-              body: parsedBody
-            }
-          });
+        // Only cache non-5xx responses typically
+        if (res.statusCode < 500) {
+          try {
+            // If it's already a string, it's likely already JSON. 
+            // If it's an object, we use it directly.
+            const parsedBody = typeof body === 'string' ? JSON.parse(body) : body;
+            const cacheData = JSON.stringify({
+              hash,
+              response: {
+                status: res.statusCode,
+                body: parsedBody
+              }
+            });
 
-          redis.set(redisKey, cacheData, 'EX', EXPIRY_SECONDS)
-            .catch(err => logger.error({ err, key }, 'Redis idempotency cache write failed'));
-        } catch (e) {
-             logger.error({ err: e, key }, 'Failed to parse response body for idempotency caching');
+            redis.set(redisKey, cacheData, 'EX', EXPIRY_SECONDS)
+              .catch(err => logger.error({ err, key }, 'Redis idempotency cache write failed'));
+          } catch (e: any) {
+               // Silently fail cache if parsing failed, but log why
+               logger.debug({ err: e.message, key }, 'Skipping idempotency cache due to response format');
+          }
         }
-      }
 
-      return res.send(body);
+        return originalSend.apply(res, arguments as any);
+      } catch (err) {
+        logger.error({ err, key }, 'Error in idempotency middleware send interceptor');
+        return originalSend.apply(res, arguments as any);
+      }
     };
 
     next();

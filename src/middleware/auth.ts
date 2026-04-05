@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthError } from '../lib/errors';
 import { config } from '../config/index.js';
 import { createClient } from '@supabase/supabase-js';
+import { ProfilesRepository } from '../repositories/profiles.repository';
 
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   // If apiKeyMiddleware already authenticated this request, skip JWT check
@@ -30,10 +31,22 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       return next(new AuthError('INVALID_TOKEN', 401));
     }
 
+    // Fetch the role from the profiles table for consistency
+    // We already have a Supabase client, but we'll use the repository for standard logic
+    const profilesRepo = new ProfilesRepository();
+    let profile;
+    try {
+      profile = await profilesRepo.findById(user.id);
+    } catch (profileError) {
+      // If profile not found, fallback to meta_data or default
+      console.warn(`Profile not found for user ${user.id}, falling back to metadata`);
+    }
+
     req.user = {
       id: user.id,
       email: user.email ?? '',
-      role: (user.user_metadata?.role as string) ||
+      role: profile?.role || 
+        (user.user_metadata?.role as string) ||
         (user.app_metadata?.role as string) || 'user',
     };
 

@@ -7,6 +7,7 @@ export interface WhatsAppSession {
   id: string;
   user_id: string;
   session_id: string;
+  sub_user_id?: string;
   status: string;
   qr_code?: string;
   created_at: string;
@@ -17,12 +18,13 @@ export class SessionRepository extends BaseRepository {
   /**
    * Insert a new session record into the database.
    */
-  public async createRecord(userId: string, sessionId: string): Promise<WhatsAppSession> {
+  public async createRecord(userId: string, sessionId: string, subUserId?: string): Promise<WhatsAppSession> {
     const { data, error } = await supabase
       .from('whatsapp_sessions')
       .insert({
         user_id: userId,
         session_id: sessionId,
+        sub_user_id: subUserId,
         status: 'disconnected',
       })
       .select()

@@ -10,6 +10,27 @@ This repository contains the Node.js/TypeScript backend for the Zaplink WhatsApp
 - **WhatsApp Engine**: Baileys
 - **Observability**: OpenTelemetry + Prometheus + Pino Logging
 
+## ⚠ Critical: Local vs Production isolation
+
+NEVER point .env.local at the production Supabase project.
+NEVER run docker compose -f docker-compose.local.yml while
+production users have active WhatsApp sessions.
+
+Local environment must always use:
+- A separate Supabase dev project (zaplink-dev)
+- REHYDRATE_SESSIONS=false
+- NODE_ENV=development
+
+Production environment (VPS) uses:
+- The production Supabase project
+- REHYDRATE_SESSIONS=true
+- NODE_ENV=production
+
+Starting local Docker against production Supabase will disconnect
+all active WhatsApp sessions for real users. There is no recovery
+without users rescanning their QR codes (unless Redis auth state
+is still intact on the VPS).
+
 ## Development
 ```bash
 npm install

@@ -183,9 +183,76 @@ paths:
       responses:
         '200':
           description: Prometheus text format.
-          content:
-            text/plain:
-              schema:
-                type: string
         '403':
           description: Invalid metrics secret.
+
+  # ═══════════════════════════════════════════════════════
+  # PARTNER TIER ENDPOINTS
+  # ═══════════════════════════════════════════════════════
+
+  /admin/partners:
+    post:
+      summary: Create Partner
+      description: |
+        Onboard a new company to the Zaplink Partner Tier.
+        Requires `super_admin` role. Returns the Master API Key once.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [partner_name, base_webhook_url, contact_email]
+              properties:
+                partner_name: { type: string, example: "Whitelabel Co" }
+                base_webhook_url: { type: string, format: uri, example: "https://whitelabel.com/webhooks" }
+                contact_email: { type: string, format: email, example: "admin@whitelabel.com" }
+      responses:
+        '201':
+          description: Partner created.
+        '403':
+          description: Insufficient permissions.
+
+    get:
+      summary: List Partners
+      description: Retrieve all partners with sub-user stats.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Successful retrieval.
+
+  /partner/sub-users:
+    post:
+      summary: Provision Sub-User
+      description: |
+        Whitelabel provisioning endpoint for partners.
+        Generates a restricted API key and whitelabel webhook URL for the sub-user.
+      security:
+        - APIKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [external_user_id]
+              properties:
+                external_user_id: { type: string, example: "customer_123" }
+                display_name: { type: string, example: "John's Pizza" }
+      responses:
+        '201':
+          description: Sub-user provisioned.
+        '401':
+          description: Invalid Master API key.
+
+    get:
+      summary: List Sub-Users
+      description: Retrieve all sub-users under the authenticated partner.
+      security:
+        - APIKeyAuth: []
+      responses:
+        '200':
+          description: Successful retrieval.

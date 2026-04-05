@@ -3,7 +3,7 @@ import { AppError } from '@/lib/errors';
 
 export interface Profile {
   id: string;
-  role: 'user' | 'super_admin';
+  role: 'user' | 'super_admin' | 'partner';
   plan_id: 'trial' | 'starter' | 'business' | 'custom';
   is_suspended: boolean;
   full_name?: string;
@@ -21,6 +21,25 @@ export class ProfilesRepository extends BaseRepository {
       .single();
 
     if (error || !data) {
+      // PGRST116 is "The result contains 0 rows"
+      if (error?.code === 'PGRST116' || !data) {
+        // Create a default profile if it doesn't exist (fallback for missing trigger)
+        const { data: newData, error: insertError } = await client
+          .from('profiles')
+          .insert({
+            id,
+            role: 'user',
+            plan_id: 'trial',
+            full_name: 'User',
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          throw new AppError('DATABASE_ERROR', 500, `Failed to create fallback profile: ${insertError.message}`);
+        }
+        return newData as Profile;
+      }
       throw new AppError('NOT_FOUND', 404, `Profile with ID ${id} not found`);
     }
 

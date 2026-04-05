@@ -51,4 +51,37 @@ export class WebhookLogsRepository extends BaseRepository {
     if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
     return data;
   }
+
+  public async listByPartner(partnerId: string, pagination?: Pagination, tx?: TransactionalClient): Promise<any[]> {
+    const client = this.getClient(tx);
+    // Join logs -> partner_sub_users (to check partner_id)
+    let query = client
+      .from('webhook_logs')
+      .select('*, partner_sub_users!inner(partner_id, external_user_id, webhook_secret)')
+      .eq('partner_sub_users.partner_id', partnerId)
+      .order('created_at', { ascending: false });
+
+    query = this.applyPagination(query, pagination);
+    const { data, error } = await query;
+
+    if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
+    return data;
+  }
+
+  public async getStats(partnerId: string, days: number = 7, tx?: TransactionalClient) {
+    const client = this.getClient(tx);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+
+    // Fetch logs to aggregate stats by day
+    const { data, error } = await client
+      .from('webhook_logs')
+      .select('created_at, response_status, partner_sub_users!inner(partner_id)')
+      .eq('partner_sub_users.partner_id', partnerId)
+      .gte('created_at', cutoff.toISOString());
+
+    if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
+
+    return data;
+  }
 }

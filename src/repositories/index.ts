@@ -11,3 +11,5 @@ export * from './groups.repository';
 export * from './newsletters.repository';
 export * from './invoices.repository';
 export * from './plans.repository';
+export * from './partners.repository';
+export * from './sub_users.repository';

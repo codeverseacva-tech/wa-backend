@@ -12,6 +12,8 @@ export interface APIKey {
   expires_at?: string;
   ip_whitelist: string[];
   last_used_at?: string;
+  partner_id?: string;
+  sub_user_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +44,21 @@ export class APIKeysRepository extends BaseRepository {
 
     if (error || !data) {
       throw new AppError('UNAUTHORIZED', 401, 'Invalid API key');
+    }
+
+    return data as APIKey;
+  }
+
+  public async findById(id: string, tx?: TransactionalClient): Promise<APIKey> {
+    const client = this.getClient(tx);
+    const { data, error } = await client
+      .from('api_keys')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      throw new AppError('NOT_FOUND', 404, 'API Key not found');
     }
 
     return data as APIKey;

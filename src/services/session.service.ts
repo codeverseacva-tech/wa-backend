@@ -3,6 +3,7 @@ import { sessionRepository } from '@/repositories/session.repository';
 import { planQuotaService } from './planQuota.service';
 import { Pagination } from '@/repositories/base.repository';
 import { redis } from '@/lib/redis';
+import { supabase } from '@/lib/supabase';
 import { AppError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import { randomUUID } from 'crypto';
@@ -14,20 +15,39 @@ import { randomUUID } from 'crypto';
 export class SessionService {
   /**
    * Creates a new WhatsApp session after verifying plan quotas.
+   * userId is the primary owner; apiKeyId is used to check for Partner Sub-user context.
    */
-  public async createSession(userId: string) {
+  public async createSession(userId: string, apiKeyId?: string) {
     // 1. Quota Check - prevents over-provisioning
     await planQuotaService.checkSessionLimit(userId);
 
     // 2. Unique Session Generator
     const sessionId = `zap_${randomUUID().replace(/-/g, '').substring(0, 12)}`;
 
-    // 3. Persist record to Supabase
-    await sessionRepository.createRecord(userId, sessionId);
+    // 3. Partner Sub-user Detection & Metadata
+    let subUserId: string | undefined;
+    if (apiKeyId) {
+      const { data: subUser } = await supabase
+        .from('partner_sub_users')
+        .select('id, partner_id')
+        .eq('api_key_id', apiKeyId)
+        .maybeSingle();
 
-    // 4. Initialize the Baileys socket
-    // userId is now passed through so the session manager can route
-    // incoming messages to the correct webhook fan-out.
+      if (subUser) {
+        subUserId = subUser.id;
+        // Store sub-user metadata in Redis for fast routing on the hot path
+        // This metadata allows Zaplink to bypass DB queries during inbound message routing.
+        await redis.set(`session:${sessionId}:meta`, JSON.stringify({
+          sub_user_id: subUser.id,
+          partner_id: subUser.partner_id
+        }), 'EX', 86400 * 30); // 30 day TTL
+      }
+    }
+
+    // 4. Persist record to Supabase
+    await sessionRepository.createRecord(userId, sessionId, subUserId);
+
+    // 5. Initialize the Baileys socket
     await sessionManager.createSocket(sessionId, userId);
 
     return { sessionId };
@@ -84,16 +104,33 @@ export class SessionService {
 
   /**
    * Fetches a single session by session_id, scoped to the owning userId.
-   * Throws SESSION_NOT_FOUND (404) if the session does not exist or belongs to another user.
+   * Self-healing: if a session record exists in DB but the socket is not active,
+   * re-attempts to ignite the socket for pending or authenticated sessions.
    */
   public async getSession(sessionId: string, userId: string) {
     const session = await sessionRepository.getBySessionId(sessionId);
     if (!session || session.user_id !== userId) {
       throw new AppError('SESSION_NOT_FOUND', 404, `Session not found: ${sessionId}`);
     }
+
+    let isOnline = sessionManager.isSocketActive(sessionId);
+
+    // Self-healing: if DB says it should be pending/authenticated but socket is dead
+    if (!isOnline && (session.status === 'pending' || session.status === 'authenticated' || session.status === 'disconnected')) {
+      logger.info({ sessionId }, '🛡️ Self-healing: Re-animating zombie session socket');
+      try {
+        // Reset reconnect attempts in Redis so it doesn't give up immediately
+        await redis.del(`session:${sessionId}:reconnect_attempts`);
+        await sessionManager.createSocket(sessionId, userId);
+        isOnline = true;
+      } catch (err) {
+        logger.warn({ err, sessionId }, 'Failed to re-animate session during getSession');
+      }
+    }
+
     return {
       ...session,
-      isOnline: sessionManager.isSocketActive(sessionId),
+      isOnline,
     };
   }
 
