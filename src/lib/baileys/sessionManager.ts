@@ -144,7 +144,7 @@ export class SessionManager {
       }
 
       if (connection === 'open') {
-        logger.info({ sessionId }, '✅ Connection opened');
+        logger.info(`✅ Connection opened  sessionId: ${sessionId}`);
         await this.updateSessionStatus(sessionId, 'authenticated');
 
         // Link session to Partner Sub-user if metadata exists
@@ -308,7 +308,7 @@ export class SessionManager {
       return;
     }
 
-    logger.info({ count: sessions?.length }, '🚀 Re-hydrating active sessions...');
+    logger.info(`Re-hydrating active sessions...  count: ${sessions?.length || 0}`);
 
     for (const session of sessions || []) {
       try {

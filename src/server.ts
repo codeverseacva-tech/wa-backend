@@ -9,21 +9,13 @@ import '@/workers'; // Register BullMQ workers
 
 const PORT = config.api.port;
 
+// 1. Initialise telemetry immediately
+initTelemetry();
+
 const startServer = async () => {
   try {
-    // 1. Initialise telemetry
-    initTelemetry();
-
     // 2. Auto-run migrations in development
     if (config.api.nodeEnv !== 'production') {
-      logger.warn('─────────────────────────────────────────');
-      logger.warn('⚠  DEVELOPMENT MODE');
-      logger.warn('⚠  Session re-hydration: DISABLED');
-      logger.warn('⚠  DB writes on disconnect: DISABLED');
-      logger.warn('⚠  Never run local Docker against');
-      logger.warn('⚠  the production Supabase project.');
-      logger.warn('─────────────────────────────────────────');
-
       try {
         await runMigrations();
       } catch (err) {
@@ -34,7 +26,6 @@ const startServer = async () => {
     // 3. Start Express app and re-hydrate sessions
     app.listen(PORT, async () => {
       logger.info(`🚀 Server running on port ${PORT} (${config.api.nodeEnv})`);
-      logger.info(`🔗 API Base URL: ${config.api.baseUrl}/${config.api.version}`);
 
       // Re-hydrate active WhatsApp sessions from DB if allowed
       if (config.session.rehydrateOnStart) {
@@ -43,8 +34,6 @@ const startServer = async () => {
         } catch (err) {
           logger.error({ err }, 'Failed to rehydrate sessions during startup');
         }
-      } else {
-        logger.info('Session re-hydration disabled (REHYDRATE_SESSIONS=false)');
       }
     });
 

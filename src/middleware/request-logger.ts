@@ -36,15 +36,8 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction) =
         .exec();
     }
 
-    // 3. Structured log
-    logger.info({
-      requestId,
-      method: req.method,
-      path: req.path,
-      statusCode: res.statusCode,
-      durationMs,
-      userId: (req as any).user?.id,
-    }, '🚀 Request finished');
+    // 3. Compact log
+    logger.info(`${req.method} ${req.path} ${res.statusCode} (${durationMs}ms)`);
   });
   
   next();

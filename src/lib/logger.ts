@@ -9,17 +9,17 @@ const REDACT_PATHS = [
 export const logger = pino({
   level: config.log.level,
   redact: { paths: REDACT_PATHS, remove: true },
-  base: { service: 'zaplink-api' },
+  base: undefined, // Remove service, pid, hostname from being added to every log
   formatters: {
     level: (label) => ({ level: label.toUpperCase() }),
   },
-  timestamp: pino.stdTimeFunctions.isoTime,
-  transport: config.api.nodeEnv === 'development' ? {
+  timestamp: false, // Disable JSON timestamp for cleaner output
+  transport: {
     target: 'pino-pretty',
     options: {
       colorize: true,
-      ignore: 'pid,hostname',
-      translateTime: 'SYS:standard',
+      ignore: 'pid,hostname,time', // Hide pid, hostname, and time for the requested simple look
+      levelFirst: true,
     },
-  } : undefined,
+  },
 });
