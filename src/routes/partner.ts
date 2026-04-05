@@ -83,7 +83,7 @@ router.post('/sub-users', authMiddleware, partnerAuth, async (req: any, res, nex
 router.get('/sub-users', authMiddleware, partnerAuth, async (req: any, res, next) => {
   try {
     if (!req.partner) {
-        return res.status(403).json({ success: false, error: { code: 'PARTNER_CONTEXT_REQUIRED' } });
+      return res.json({ success: true, data: { data: [], total: 0 } });
     }
     const partnerId = req.partner.id;
     const status = req.query.status as string;
@@ -252,12 +252,18 @@ router.delete('/sub-users/:externalUserId', authMiddleware, partnerAuth, async (
 router.get('/overview', authMiddleware, partnerAuth, async (req: any, res, next) => {
   try {
     if (!req.partner) {
-      return res.status(403).json({ 
-        success: false, 
-        error: { 
-          code: 'PARTNER_CONTEXT_REQUIRED', 
-          message: 'This dashboard requires a partner profile. Super-admins must be linked to a partner to view metrics.' 
-        } 
+      return res.json({
+        success: true,
+        data: {
+          stats: {
+            total_sub_users: 0,
+            connected_sessions: 0,
+            delivered_today: 0,
+            failed_today: 0
+          },
+          recent_activity: [],
+          delivery_health: []
+        }
       });
     }
 
@@ -332,7 +338,7 @@ router.get('/overview', authMiddleware, partnerAuth, async (req: any, res, next)
 router.get('/webhook-logs', authMiddleware, partnerAuth, async (req: any, res, next) => {
   try {
     if (!req.partner) {
-        return res.status(403).json({ success: false, error: { code: 'PARTNER_CONTEXT_REQUIRED' } });
+      return res.json({ success: true, data: [] });
     }
     const partnerId = req.partner.id;
     const limit = parseInt(req.query.limit as string) || 50;
@@ -370,7 +376,14 @@ router.get('/settings', authMiddleware, partnerAuth, async (req: any, res, next)
   try {
     const partner = req.partner;
     if (!partner) {
-        return res.status(403).json({ success: false, error: { code: 'PARTNER_CONTEXT_REQUIRED' } });
+        return res.json({ 
+          success: true, 
+          data: { 
+            base_webhook_url: '', 
+            master_key_prefix: null,
+            delivery_config: { retry_attempts: 3, retry_strategy: 'exponential', pause_threshold: 10 }
+          } 
+        });
     }
     const key = partner.master_api_key_id ? await apiKeyRepo.findById(partner.master_api_key_id) : null;
 
@@ -419,11 +432,57 @@ router.patch('/settings', authMiddleware, partnerAuth, async (req: any, res, nex
 });
 
 /**
+ * POST /v1/partner/settings/test-webhook
+ */
+router.post('/settings/test-webhook', authMiddleware, partnerAuth, async (req: any, res, next) => {
+  try {
+    const { url } = req.body;
+    if (!url) {
+      return res.status(400).json({ success: false, error: { message: 'URL is required' } });
+    }
+
+    try {
+      const resp = await axios.post(url, {
+        event: 'ping',
+        timestamp: new Date().toISOString(),
+        payload: { message: 'This is a test webhook from Zaplink' }
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Zaplink-Webhook-Tester/1.0'
+        },
+        timeout: 10000,
+        validateStatus: () => true 
+      });
+
+      res.json({
+        success: true,
+        data: {
+          status: resp.status,
+          body: typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data)
+        }
+      });
+    } catch (error: any) {
+      res.json({
+        success: true,
+        data: {
+          status: error.response?.status || 504,
+          body: error.message || 'Ping failed (network error or timeout)'
+        }
+      });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /v1/partner/settings/regenerate-master-key
+ * STEP 11 — Rotate or Provision Master API Key
  */
 router.post('/settings/regenerate-master-key', authMiddleware, partnerAuth, async (req: any, res, next) => {
   try {
-    const partner = req.partner;
+    let partner = req.partner;
     const userId = req.user.id;
 
     // 1. Generate New Key
@@ -433,30 +492,50 @@ router.post('/settings/regenerate-master-key', authMiddleware, partnerAuth, asyn
     const hash = createHash('sha256').update(secretPart).digest('hex');
     const newApiKeyId = uuidv4();
 
-    // 2. Create the new key
+    // 2. Create the API key record
+    // If partner doesn't exist yet, we'll link it back after creation
     await apiKeyRepo.create({
       id: newApiKeyId,
       user_id: userId,
-      key_name: 'Master Partner Key (Rotated)',
+      key_name: partner ? 'Master Partner Key (Rotated)' : 'Master Partner Key (Initial)',
       key_hash: hash,
       key_prefix: prefixString,
-      permissions: ['partner:admin'],
-      partner_id: partner.id
+      permissions: ['partner:admin', 'messages:send', 'sessions:manage'], 
+      rate_limit: 5000,
+      partner_id: partner?.id || undefined
     });
 
-    // 3. Update Partner to use the new key ID
-    await partnerRepo.update(partner.id, {
-      master_api_key_id: newApiKeyId,
-      updated_at: new Date().toISOString()
-    });
+    if (!partner) {
+        // 3. Auto-Onboard: Create Partner Record
+        const partnerId = uuidv4();
+        partner = await partnerRepo.create({
+            id: partnerId,
+            partner_name: req.user.email?.split('@')[0] || 'Unknown Partner',
+            contact_email: req.user.email,
+            base_webhook_url: '',
+            master_api_key_id: newApiKeyId,
+            status: 'active',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        });
 
-    // 4. Ideally: Revoke the old key (delete it)
-    if (partner.master_api_key_id) {
-        try {
-            await apiKeyRepo.delete(partner.master_api_key_id, userId);
-        } catch (e) {
-            // Log error but continue as the new key is already set
-            console.error('Failed to revoke old master key:', e);
+        // 4. Update the API key to link back to the new partner
+        await apiKeyRepo.update(newApiKeyId, { partner_id: partnerId });
+    } else {
+        // 5. Update existing Partner to use the new key ID
+        await partnerRepo.update(partner.id, {
+            master_api_key_id: newApiKeyId,
+            updated_at: new Date().toISOString()
+        });
+
+        // 6. Revoke the old key
+        if (partner.master_api_key_id) {
+            try {
+                await apiKeyRepo.delete(partner.master_api_key_id, userId);
+            } catch (e) {
+                // Log error but continue as the new key is already set
+                console.error('Failed to revoke old master key:', e);
+            }
         }
     }
 

@@ -37,8 +37,8 @@ export const partnerAuth = async (req: any, res: Response, next: NextFunction) =
       }
     }
 
-    if (!partner && !isSuperAdmin) {
-      return next(new AuthError('FORBIDDEN', 403, 'Partner context not found. Ensure your account is provisioned as a partner.'));
+    if (!partner && !isSuperAdmin && !isPartner) {
+      return next(new AuthError('FORBIDDEN', 403, 'Partner context not found. Please ensure you have the required role or API key.'));
     }
 
     if (partner && partner.status !== 'active') {

@@ -94,4 +94,20 @@ export class APIKeysRepository extends BaseRepository {
       .eq('user_id', userId);
     if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
   }
+
+  public async update(id: string, updates: Partial<APIKey>, tx?: TransactionalClient): Promise<APIKey> {
+    const client = this.getClient(tx);
+    const { data, error } = await client
+      .from('api_keys')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new AppError('DATABASE_ERROR', 500, error?.message || 'Update api key failed');
+    }
+
+    return data as APIKey;
+  }
 }

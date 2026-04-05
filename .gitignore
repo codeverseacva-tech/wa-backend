@@ -17,9 +17,6 @@ npm-debug.log*
 # Sessions (Baileys)
 sessions/
 
-# Shared types
-*.d.ts
-
 # Misc
 .DS_Store
 .vscode/
