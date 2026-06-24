@@ -147,7 +147,7 @@ router.post('/:sessionId/messages', authMiddleware, async (req, res, next) => {
         if (!to) throw new AppError('VALIDATION_ERROR', 400, 'to is required');
         if (!message) throw new AppError('VALIDATION_ERROR', 400, 'message is required');
         const payload = normalizePayload(to, message);
-        const result = await messageService.send(sessionId, payload);
+        const result = await messageService.send(sessionId, payload, req.user!.id);
         res.status(201).json({ success: true, data: result });
     } catch (err) {
         next(err);

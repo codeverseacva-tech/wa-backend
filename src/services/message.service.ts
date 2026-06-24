@@ -1,6 +1,8 @@
 import { sessionManager } from '@/lib/baileys/sessionManager';
 import { AppError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
+import { redis } from '@/lib/redis';
+import { sessionRepository } from '@/repositories/session.repository';
 import { AnyMessageContent } from '@whiskeysockets/baileys';
 import axios from 'axios';
 
@@ -33,10 +35,31 @@ export class MessageService {
    * Core send dispatcher — routes to the correct Baileys sendMessage call
    * based on message type.
    */
-  public async send(sessionId: string, payload: SendMessagePayload): Promise<SendMessageResult> {
-    const socket = sessionManager.getSocket(sessionId);
+  public async send(sessionId: string, payload: SendMessagePayload, userId?: string): Promise<SendMessageResult> {
+    let socket = sessionManager.getSocket(sessionId);
+    
+    // 🛡️ Self-Healing logic for Zombie Sessions
     if (!socket) {
-      throw new AppError('SESSION_NOT_FOUND', 404, `No active socket for session: ${sessionId}`);
+      const session = await sessionRepository.getBySessionId(sessionId);
+
+      // Verify ownership if userId is provided
+      if (userId && session && session.user_id !== userId) {
+        throw new AppError('SESSION_NOT_FOUND', 404, `Session not found: ${sessionId}`);
+      }
+
+      if (session && (session.status === 'pending' || session.status === 'authenticated' || session.status === 'disconnected')) {
+        logger.info({ sessionId }, '🛡️ Self-healing: Re-animating zombie session socket before sending message');
+        try {
+          await redis.del(`session:${sessionId}:reconnect_attempts`);
+          socket = await sessionManager.createSocket(sessionId, session.user_id);
+        } catch (err) {
+          logger.warn({ err, sessionId }, 'Failed to re-animate session during send');
+        }
+      }
+
+      if (!socket) {
+        throw new AppError('SESSION_NOT_FOUND', 404, `No active socket for session: ${sessionId}`);
+      }
     }
 
     const jid = toJid(payload.to);
@@ -212,9 +235,10 @@ export class MessageService {
   public async sendMessage(
     sessionId: string,
     to: string,
-    payload: Omit<SendMessagePayload, 'to'>
+    payload: Omit<SendMessagePayload, 'to'>,
+    userId?: string
   ): Promise<SendMessageResult> {
-    return this.send(sessionId, { ...payload, to });
+    return this.send(sessionId, { ...payload, to }, userId);
   }
 }
 
