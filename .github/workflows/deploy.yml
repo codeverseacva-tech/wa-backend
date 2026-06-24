@@ -19,7 +19,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
@@ -91,13 +91,14 @@ jobs:
     needs: [test, build, deploy]
     if: always()
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Slack Notification
+        if: env.SLACK_WEBHOOK_URL != ''
         uses: 8398a7/action-slack@v3
         with:
           status: ${{ job.status }}
           fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
           text: |
             ${{ job.status == 'success' && format(':white_check_mark: *Deployment SUCCESS* for {0}\n*Commit:* {1}\n*Branch:* {2}\n*Duration:* {3}', github.repository, github.sha, github.ref, '60s') || format(':x: *Deployment FAILED*!\n*Logs:* {0}/{1}/actions/runs/{2}\n*Rollback status:* Automated rollback initiated.', github.server_url, github.repository, github.run_id) }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
