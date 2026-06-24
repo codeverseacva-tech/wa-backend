@@ -21,22 +21,18 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: backend
         run: npm ci
 
       - name: Run Lint
-        working-directory: backend
         run: npm run lint
 
       - name: Run Tests
-        working-directory: backend
         run: npm test
 
       - name: Validate OpenAPI Spec
-        working-directory: backend
         run: npm run validate:openapi
 
   build:
@@ -59,7 +55,7 @@ jobs:
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
-          context: ./backend
+          context: .
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
