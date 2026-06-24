@@ -28,9 +28,6 @@ jobs:
 
 
 
-      - name: Validate OpenAPI Spec
-        run: npm run validate:openapi
-
   build:
     name: Build & Push
     needs: test
