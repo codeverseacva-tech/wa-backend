@@ -8,7 +8,7 @@
 set -e
 
 # ── Config — edit these ─────────────────────────────────────────
-VPS_USER="root"
+VPS_USER="koros"
 VPS_HOST="185.185.80.178"
 VPS_DIR="/opt/zaplink/backend"
 SLACK_WEBHOOK="${SLACK_WEBHOOK_URL:-}"
