@@ -9,7 +9,7 @@ set -e
 
 # ── Config — edit these ─────────────────────────────────────────
 VPS_USER="root"
-VPS_HOST="your.contabo.vps.ip"
+VPS_HOST="185.185.80.178"
 VPS_DIR="/opt/zaplink/backend"
 SLACK_WEBHOOK="${SLACK_WEBHOOK_URL:-}"
 GIT_BRANCH="main"
