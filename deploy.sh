@@ -36,14 +36,11 @@ echo "→ Pulling latest code..."
 git fetch origin $GIT_BRANCH
 git reset --hard origin/$GIT_BRANCH
 
-echo "→ Building new image..."
+echo "→ Building new images..."
 docker compose build --no-cache api worker
 
-echo "→ Stopping old containers..."
-docker compose down --remove-orphans
-
-echo "→ Starting new containers..."
-docker compose up -d
+echo "→ Deploying api and worker (redis and bullboard kept running)..."
+docker compose up -d --no-deps api worker
 
 echo "→ Waiting for API to be healthy..."
 MAX_RETRIES=30
