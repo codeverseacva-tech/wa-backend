@@ -109,6 +109,17 @@ export class SubUsersRepository extends BaseRepository {
     if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
   }
 
+  public async reactivate(partnerId: string, externalUserId: string, tx?: TransactionalClient): Promise<void> {
+    const client = this.getClient(tx);
+    const { error } = await client
+      .from('partner_sub_users')
+      .update({ status: 'active' })
+      .eq('partner_id', partnerId)
+      .eq('external_user_id', externalUserId);
+
+    if (error) throw new AppError('DATABASE_ERROR', 500, error.message);
+  }
+
   private enrichSubUser(data: any): SubUser {
     const base = data.partners?.base_webhook_url || '';
     const suffix = data.webhook_url_suffix || '';

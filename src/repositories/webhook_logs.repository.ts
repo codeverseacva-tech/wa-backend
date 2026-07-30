@@ -3,7 +3,8 @@ import { AppError } from '@/lib/errors';
 
 export interface WebhookLog {
   id: string;
-  webhook_id: string;
+  webhook_id?: string;
+  sub_user_id?: string;
   event_type: string;
   payload: any;
   response_status?: number;

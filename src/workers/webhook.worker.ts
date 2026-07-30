@@ -17,7 +17,7 @@ const logsRepo = new WebhookLogsRepository();
 export const webhookWorker = new Worker<WebhookDispatchJob>(
   'webhook-dispatch',
   async (job: Job<WebhookDispatchJob>) => {
-    const { webhookId, url, secret, eventType, payload, subUserId, partnerId } = job.data;
+    const { webhookId, url, secret, eventType, payload, subUserId, dbSubUserId, partnerId } = job.data;
 
     // 1. Digital Signature: HMAC-SHA256
     const signature = createHmac('sha256', secret)
@@ -51,6 +51,7 @@ export const webhookWorker = new Worker<WebhookDispatchJob>(
       // 4. Persist success log
       await logsRepo.create({
         webhook_id: webhookId,
+        sub_user_id: dbSubUserId,
         event_type: eventType,
         payload,
         response_status: response.status,
@@ -68,15 +69,10 @@ export const webhookWorker = new Worker<WebhookDispatchJob>(
         await redis.expire(`webhook:fail_count:${subUserId}`, 86400); // 24h window
 
         if (failCount === 3) {
-          await supabase
-            .from('partner_sub_users')
-            .update({ status: 'suspended' })
-            .eq('external_user_id', subUserId);
-          
           await slack.sendAlert(
-            'critical',
-            'Partner Webhook Paused',
-            `Delivery for sub-user ${subUserId} has been suspended after 3 consecutive failures.`,
+            'warning',
+            'Partner Webhook Failing',
+            `Delivery for sub-user ${subUserId} has failed 3 consecutive times. (User is NOT suspended).`,
             { url, lastError: err.message }
           );
         }
@@ -84,6 +80,7 @@ export const webhookWorker = new Worker<WebhookDispatchJob>(
 
       await logsRepo.create({
         webhook_id: webhookId,
+        sub_user_id: dbSubUserId,
         event_type: eventType,
         payload,
         response_status: status,

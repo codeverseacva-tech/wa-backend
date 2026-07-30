@@ -32,6 +32,18 @@ send_slack "🚀" "Starting deploy from branch $GIT_BRANCH"
 
 cd $VPS_DIR
 
+echo "→ Backing up session state before deploy..."
+docker compose exec -T api node dist/scripts/backup-session-state.js > /tmp/backup_output.txt 2>&1 || {
+  cat /tmp/backup_output.txt
+  echo "✗ Backup failed, aborting deploy."
+  exit 1
+}
+cat /tmp/backup_output.txt
+BACKUP_FILE=$(grep -oE 'backup-[a-zA-Z0-9_-]+\.json' /tmp/backup_output.txt | head -n 1 || true)
+if [ -n "$BACKUP_FILE" ]; then
+  send_slack "💾" "Backed up to $BACKUP_FILE"
+fi
+
 echo "→ Pulling latest code..."
 git fetch origin $GIT_BRANCH
 git reset --hard origin/$GIT_BRANCH

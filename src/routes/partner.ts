@@ -247,6 +247,29 @@ router.delete('/sub-users/:externalUserId', authMiddleware, partnerAuth, async (
 });
 
 /**
+ * POST /v1/partner/sub-users/:externalUserId/reactivate
+ * STEP 10 — Reactivate sub-user
+ */
+router.post('/sub-users/:externalUserId/reactivate', authMiddleware, partnerAuth, async (req: any, res, next) => {
+  try {
+    if (!req.partner) {
+        return res.status(403).json({ success: false, error: { code: 'PARTNER_CONTEXT_REQUIRED' } });
+    }
+    const partnerId = req.partner.id;
+    const { externalUserId } = req.params;
+
+    await subUserRepo.reactivate(partnerId, externalUserId);
+
+    res.json({
+      success: true,
+      data: null
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /v1/partner/overview
  */
 router.get('/overview', authMiddleware, partnerAuth, async (req: any, res, next) => {

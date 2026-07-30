@@ -75,7 +75,7 @@ export class WebhookService {
 
       // 2. Dispatch to BullMQ for resilient delivery
       await webhookDispatchQueue.add('webhook-dispatch', {
-        webhookId: `sub_${subUserId}`,
+        dbSubUserId: subUserId,
         url,
         secret,
         eventType,
