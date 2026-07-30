@@ -33,13 +33,14 @@ export interface ScheduledMessageJob extends BaseJob {
 }
 
 export interface WebhookDispatchJob extends BaseJob {
-  webhookId: string;
+  webhookId?: string;
   url: string;
   secret: string;
   eventType: string;
   payload: any;
   userId: string;
   subUserId?: string; // For Partner Sub-users
+  dbSubUserId?: string; // Internal database UUID
   partnerId?: string; // For Partner Tier identification
 }
 

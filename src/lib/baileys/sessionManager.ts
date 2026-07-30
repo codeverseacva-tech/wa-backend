@@ -4,6 +4,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   ConnectionState,
   proto,
+  WAMessage,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import { redis } from '@/lib/redis';
@@ -30,10 +31,10 @@ interface SessionEntry {
  * remoteJidAlt, when present, holds the original phone-number JID (@s.whatsapp.net).
  * We expose the phone-number JID as `from` and keep the raw LID as `fromLid`.
  */
-function resolveFromJid(msg: proto.IWebMessageInfo): { from: string; fromLid: string | null } {
+function resolveFromJid(msg: WAMessage): { from: string; fromLid: string | null } {
   const key = msg.key ?? {};
   const remoteJid = key.remoteJid ?? '';
-  const remoteJidAlt = (key as any).remoteJidAlt as string | undefined;
+  const remoteJidAlt = key.remoteJidAlt;
 
   if (remoteJidAlt && !remoteJidAlt.endsWith('@lid')) {
     // remoteJidAlt is the normalised phone JID; remoteJid is the LID
@@ -47,6 +48,27 @@ function resolveFromJid(msg: proto.IWebMessageInfo): { from: string; fromLid: st
 
   // No LID involved — remoteJid is already a phone JID
   return { from: remoteJid, fromLid: null };
+}
+
+/**
+ * Resolves the best available JID for the 'participant' field in group messages.
+ */
+function resolveParticipantJid(msg: WAMessage): { participant: string | null; participantLid: string | null } {
+  const key = msg.key ?? {};
+  const participant = key.participant;
+  const participantAlt = key.participantAlt;
+
+  if (!participant) return { participant: null, participantLid: null };
+
+  if (participantAlt && !participantAlt.endsWith('@lid')) {
+    return { participant: participantAlt, participantLid: participant };
+  }
+
+  if (participant.endsWith('@lid') && participantAlt) {
+    return { participant: participantAlt, participantLid: participant };
+  }
+
+  return { participant: participant, participantLid: null };
 }
 
 /**
@@ -219,6 +241,7 @@ export class SessionManager {
         const text = extractText(msg);
         const fromMe = msg.key.fromMe ?? false;
         const { from, fromLid } = resolveFromJid(msg);
+        const { participant, participantLid } = resolveParticipantJid(msg);
         const messageId = msg.key.id ?? '';
         const timestamp =
           typeof msg.messageTimestamp === 'number'
@@ -233,6 +256,8 @@ export class SessionManager {
           messageId,
           from,
           fromLid,
+          participant,
+          participantLid,
           fromMe,
           type: messageType,
           text,
@@ -266,7 +291,7 @@ export class SessionManager {
   public async terminateSocket(sessionId: string) {
     const entry = this.sockets.get(sessionId);
     if (entry) {
-      entry.socket.end(undefined);
+      await entry.socket.end(undefined);
       this.sockets.delete(sessionId);
       baileysActiveSessions.set(this.sockets.size);
     }

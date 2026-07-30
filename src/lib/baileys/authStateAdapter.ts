@@ -19,12 +19,26 @@ export const useBaileysAuthState = async (sessionId: string, redisClient: Redis)
   const keysKeyPrefix = `session:${sessionId}:keys:`;
 
   /**
-   * Helper to write a large bulk of keys to DB for persistence
+   * Helper to write creds to DB for persistence.
+   * We only persist creds synchronously as they are critical for session survival.
    */
-  const persistToDB = async (type: string, id: string, data: any) => {
-    // This assumes we have a way to store this in DB. 
-    // If auth_state column doesn't exist yet, we'll need to handle it or use a dedicated table.
-    // For now, we'll focus on Redis as the primary store as per requirements.
+  const persistCredsToDB = async (credsData: AuthenticationCreds) => {
+    try {
+      const value = JSON.parse(JSON.stringify(credsData, BufferJSON.replacer));
+      const { error } = await supabase.from('baileys_auth_state').upsert({
+        session_id: sessionId,
+        key_type: 'creds',
+        key_id: 'creds',
+        value,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'session_id, key_type, key_id' });
+      
+      if (error) {
+        logger.error(`[Baileys Auth] Supabase creds persistence error for session ${sessionId}: ${error.message}`);
+      }
+    } catch (e: any) {
+      logger.error(`[Baileys Auth] Failed to persist creds to Supabase for session ${sessionId}: ${e.message}`);
+    }
   };
 
   /**
@@ -61,12 +75,32 @@ export const useBaileysAuthState = async (sessionId: string, redisClient: Redis)
     creds = JSON.parse(existingCreds, BufferJSON.reviver);
   } else {
     // Try re-hydrating from DB here if Redis was flushed
-    // TODO: implement DB re-hydration
-    creds = initAuthCreds();
+    try {
+      const { data: dbState, error } = await supabase
+        .from('baileys_auth_state')
+        .select('value')
+        .eq('session_id', sessionId)
+        .eq('key_type', 'creds')
+        .eq('key_id', 'creds')
+        .single();
+        
+      if (!error && dbState?.value) {
+        logger.info(`[Baileys Auth] Re-hydrating creds from DB for session ${sessionId}`);
+        // DB returns a JS object from jsonb, we need to stringify it to pass it through reviver
+        creds = JSON.parse(JSON.stringify(dbState.value), BufferJSON.reviver);
+        await redisClient.set(credsKey, JSON.stringify(creds, BufferJSON.replacer));
+      } else {
+        creds = initAuthCreds();
+      }
+    } catch (e: any) {
+      logger.error(`[Baileys Auth] DB re-hydration failed for session ${sessionId}, starting fresh: ${e.message}`);
+      creds = initAuthCreds();
+    }
   }
 
   const saveCreds = async () => {
     await redisClient.set(credsKey, JSON.stringify(creds, BufferJSON.replacer));
+    await persistCredsToDB(creds);
   };
 
   return {
